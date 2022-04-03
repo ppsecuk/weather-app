@@ -1,0 +1,77 @@
+stages:
+  #- test
+  - build
+  - deploy
+
+.docker-login:
+  services:
+    - docker:19.03.13-dind
+  image: docker:19.03.13
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    BUILD_IMAGE_NAME: $CI_REGISTRY_IMAGE
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+build:
+  extends: .docker-login
+  stage: build
+  script:
+    - echo $GCP_DATASTORE_KEY_DEV >> key_dev.json
+    - echo $GCP_DATASTORE_KEY_PROD >> key_prod.json
+    - docker build --tag "$BUILD_IMAGE_NAME:$CI_COMMIT_SHORT_SHA" .
+    - docker push "$BUILD_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+  tags: 
+    - docker-local
+  only:
+    refs:
+      - master
+
+# test:
+#   stage: test
+#   image: python:3.9.6
+#   before_script:
+#     - pip install --upgrade pip
+#     - pip install -r requirements.txt
+#   script:
+#     - pytest --junitxml=report.xml
+#   allow_failure: true
+#   artifacts:
+#     when: always
+#     reports:
+#       junit: report.xml
+#   tags: 
+#      - devops-local
+#   only:
+#     refs:
+#       - master
+
+deploy:
+  stage: deploy
+  image: registry.gitlab.com/breakwater/devops/docker/helm-image
+  variables:
+    CLUSTER_ZONE: europe-west1-c
+    HELM_CHART: kubernetes
+    GCP_PROJECT_ID: devops
+    CLUSTER_NAME: devops
+    BUILD_IMAGE_NAME: $CI_REGISTRY_IMAGE
+  environment:
+    name: devops
+    kubernetes:
+      namespace: $KUBE_NAMESPACE
+  before_script:
+    - gcloud config set project $GCP_PROJECT_ID
+    - gcloud config set compute/zone $CLUSTER_ZONE
+    - echo $K8S_GCLOUD_SERVICE_KEY > ${HOME}/gcloud-service-key.json
+    - gcloud auth activate-service-account --key-file ${HOME}/gcloud-service-key.json
+    - gcloud container clusters get-credentials $CLUSTER_NAME
+  script:
+    - >-
+      helm upgrade -i $CI_PROJECT_NAME $HELM_CHART 
+      --namespace=$KUBE_NAMESPACE 
+      --wait
+  tags:
+    - devops-local
+  only:
+    refs:
+      - master

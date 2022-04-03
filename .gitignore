@@ -1,0 +1,16 @@
+src/config
+
+.vscode/
+
+.env
+.env.prod
+.DS_Store
+key-dev.json
+key-prod.json
+
+docker-compose.yml
+
+chromedriver
+
+__pycache__/
+.pytest_cache/
